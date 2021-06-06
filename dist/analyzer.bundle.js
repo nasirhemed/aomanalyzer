@@ -13112,6 +13112,10 @@ var masterUrl = window.location.origin + '/';
 if (window.location.origin.startsWith('file://') || window.location.origin.startsWith('http://localhost')) {
     masterUrl = 'https://arewecompressedyet.com/';
 }
+else {
+    // TODO: Remove this later
+    masterUrl = 'https://beta.arewecompressedyet.com';
+}
 var RunDetails = /** @class */ (function (_super) {
     __extends(RunDetails, _super);
     function RunDetails() {
