@@ -13114,7 +13114,7 @@ if (window.location.origin.startsWith('file://') || window.location.origin.start
 }
 else {
     // TODO: Remove this later
-    masterUrl = 'https://beta.arewecompressedyet.com';
+    masterUrl = 'https://beta.arewecompressedyet.com/';
 }
 var RunDetails = /** @class */ (function (_super) {
     __extends(RunDetails, _super);
