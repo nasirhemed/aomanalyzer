@@ -209,6 +209,98 @@ function getImageFormat() {
     // this function so need this for backwards compatibility.
     return native._get_image_format ? native._get_image_format() : AOM_IMG_FMT_PLANAR;
 }
+function readGrainPlane(plane) {
+    var p = native._get_grain_values(plane);
+    if (p == 0) {
+        return null;
+    }
+    var HEAPU8 = native.HEAPU8;
+    var stride = native._get_plane_stride(plane);
+    var depth = 8;
+    var width = native._get_frame_width();
+    var height = native._get_frame_height();
+    var fmt = getImageFormat();
+    var hbd = fmt & AOM_IMG_FMT_HIGHBITDEPTH;
+    if (hbd) {
+        stride >>= 1;
+    }
+    var xdec;
+    var ydec;
+    if (fmt == AOM_IMG_FMT_I444 || fmt == AOM_IMG_FMT_I44416) {
+        xdec = 0;
+        ydec = 0;
+    }
+    else if (fmt == AOM_IMG_FMT_I422 || fmt == AOM_IMG_FMT_I42216) {
+        xdec = plane > 0 ? 1 : 0;
+        ydec = 0;
+    }
+    else {
+        xdec = plane > 0 ? 1 : 0;
+        ydec = plane > 0 ? 1 : 0;
+    }
+    width >>= xdec;
+    height >>= ydec;
+    var byteLength = height * width;
+    var buffer = getReleasedBuffer(byteLength);
+    if (buffer && !hbd) {
+        // Copy into released buffer.
+        var tmp = new Uint8Array(buffer);
+        if (stride === width) {
+            tmp.set(HEAPU8.subarray(p, p + byteLength));
+        }
+        else {
+            for (var i = 0; i < height; i++) {
+                tmp.set(HEAPU8.subarray(p, p + width), i * width);
+                p += stride;
+            }
+        }
+    }
+    else if (hbd) {
+        var tmpBuffer = buffer ? new Uint8Array(buffer) : new Uint8Array(byteLength);
+        if (depth == 10) {
+            // Convert to 8 bit depth.
+            for (var y = 0; y < height; y++) {
+                for (var x = 0; x < width; x++) {
+                    var offset = y * (stride << 1) + (x << 1);
+                    tmpBuffer[y * width + x] = (HEAPU8[p + offset] + (HEAPU8[p + offset + 1] << 8)) >> 2;
+                }
+            }
+        }
+        else {
+            // Unpack to 8 bit depth.
+            for (var y = 0; y < height; y++) {
+                for (var x = 0; x < width; x++) {
+                    var offset = y * (stride << 1) + (x << 1);
+                    tmpBuffer[y * width + x] = HEAPU8[p + offset];
+                }
+            }
+        }
+        buffer = tmpBuffer.buffer;
+        depth = 8;
+    }
+    else {
+        if (stride === width) {
+            buffer = HEAPU8.slice(p, p + byteLength).buffer;
+        }
+        else {
+            var tmp = new Uint8Array(byteLength);
+            for (var i = 0; i < height; i++) {
+                tmp.set(HEAPU8.subarray(p, p + width), i * width);
+                p += stride;
+            }
+            buffer = tmp.buffer;
+        }
+    }
+    return {
+        buffer: buffer,
+        stride: width,
+        depth: depth,
+        width: width,
+        height: height,
+        xdec: xdec,
+        ydec: ydec,
+    };
+}
 function readPlane(plane) {
     var p = native._get_plane(plane);
     var HEAPU8 = native.HEAPU8;
@@ -298,6 +390,14 @@ function readPlane(plane) {
         ydec: ydec,
     };
 }
+function readGrainImage() {
+    return {
+        hashCode: (Math.random() * 10000000) | 0,
+        Y: readGrainPlane(0),
+        U: readGrainPlane(1),
+        V: readGrainPlane(2)
+    };
+}
 function readImage() {
     return {
         hashCode: (Math.random() * 1000000) | 0,
@@ -305,6 +405,9 @@ function readImage() {
         U: readPlane(1),
         V: readPlane(2),
     };
+}
+function readGrains(e) {
+    var s = performance.now();
 }
 function readFrame(e) {
     var s = performance.now();
@@ -317,12 +420,14 @@ function readFrame(e) {
         return null;
     }
     var image = null;
+    var grainImage = null;
     if (e.data.shouldReadImageData) {
         image = readImage();
+        grainImage = readGrainImage();
     }
     self.postMessage({
         command: 'readFrameResult',
-        payload: { json: json, image: image, decodeTime: performance.now() - s },
+        payload: { json: json, image: image, decodeTime: performance.now() - s, grainImage: grainImage },
         id: e.data.id,
     }, image ? [image.Y.buffer, image.U.buffer, image.V.buffer] : undefined);
     assert(image.Y.buffer.byteLength === 0 && image.U.buffer.byteLength === 0 && image.V.buffer.byteLength === 0, 'Buffers must be transferred.');
