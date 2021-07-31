@@ -395,7 +395,7 @@ function readGrainImage() {
         hashCode: (Math.random() * 10000000) | 0,
         Y: readGrainPlane(0),
         U: readGrainPlane(1),
-        V: readGrainPlane(2)
+        V: readGrainPlane(2),
     };
 }
 function readImage() {
