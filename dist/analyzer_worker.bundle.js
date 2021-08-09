@@ -211,11 +211,12 @@ function getImageFormat() {
 }
 function readGrainPlane(plane) {
     var p = native._get_grain_values(plane);
+    var actualPlane = plane < 3 ? plane : plane - 3;
     if (p == 0) {
         return null;
     }
     var HEAPU8 = native.HEAPU8;
-    var stride = native._get_plane_stride(plane);
+    var stride = native._get_plane_stride(actualPlane);
     var depth = 8;
     var width = native._get_frame_width();
     var height = native._get_frame_height();
@@ -231,12 +232,12 @@ function readGrainPlane(plane) {
         ydec = 0;
     }
     else if (fmt == AOM_IMG_FMT_I422 || fmt == AOM_IMG_FMT_I42216) {
-        xdec = plane > 0 ? 1 : 0;
+        xdec = actualPlane > 0 ? 1 : 0;
         ydec = 0;
     }
     else {
-        xdec = plane > 0 ? 1 : 0;
-        ydec = plane > 0 ? 1 : 0;
+        xdec = actualPlane > 0 ? 1 : 0;
+        ydec = actualPlane > 0 ? 1 : 0;
     }
     width >>= xdec;
     height >>= ydec;
@@ -398,6 +399,14 @@ function readGrainImage() {
         V: readGrainPlane(2),
     };
 }
+function readScaledGrainImage() {
+    return {
+        hashCode: (Math.random() * 10000000) | 0,
+        Y: readGrainPlane(3),
+        U: readGrainPlane(4),
+        V: readGrainPlane(5),
+    };
+}
 function readImage() {
     return {
         hashCode: (Math.random() * 1000000) | 0,
@@ -421,13 +430,15 @@ function readFrame(e) {
     }
     var image = null;
     var grainImage = null;
+    var scaledGrainImage = null;
     if (e.data.shouldReadImageData) {
         image = readImage();
         grainImage = readGrainImage();
+        scaledGrainImage = readScaledGrainImage();
     }
     self.postMessage({
         command: 'readFrameResult',
-        payload: { json: json, image: image, decodeTime: performance.now() - s, grainImage: grainImage },
+        payload: { json: json, image: image, decodeTime: performance.now() - s, grainImage: grainImage, scaledGrainImage: scaledGrainImage },
         id: e.data.id,
     }, image ? [image.Y.buffer, image.U.buffer, image.V.buffer] : undefined);
     assert(image.Y.buffer.byteLength === 0 && image.U.buffer.byteLength === 0 && image.V.buffer.byteLength === 0, 'Buffers must be transferred.');
