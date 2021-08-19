@@ -359,7 +359,7 @@ export class ModeInfoComponent extends React.Component<
       const motionVectors = json['motionVectors'];
       if (!motionVectors) return 'N/A';
       const v = motionVectors[r][c];
-      return `${v[0]},${v[1]} ${v[2]},${v[3]}`;
+      return `<${v[0]},${v[1]}>, <${v[2]},${v[3]}>`;
     }
     function getReferenceFrame() {
       const referenceFrame = json['referenceFrame'];
@@ -438,6 +438,10 @@ export class ModeInfoComponent extends React.Component<
               <TableCell style={valueStyle}>{getProperty('motion_mode')}</TableCell>
             </TableRow>
             <TableRow>
+              <TableCell>Compound Type</TableCell>
+              <TableCell style={valueStyle}>{getProperty('compound_type')}</TableCell>
+            </TableRow>
+            <TableRow>
               <TableCell>CDEF</TableCell>
               <TableCell style={valueStyle}>
                 {getSuperBlockProperty('cdef_level')} / {getSuperBlockProperty('cdef_strength')}
@@ -491,8 +495,10 @@ export class AnalyzerView extends React.Component<
     showFilters: boolean;
     showCDEF: boolean;
     showMotionMode: boolean;
+    showWedgeMode: boolean;
     showMode: boolean;
     showUVMode: boolean;
+    showCompoundTypes: boolean;
     showSegment: boolean;
     showBits: boolean;
     showBitsScale: 'frame' | 'video' | 'videos';
@@ -653,8 +659,25 @@ export class AnalyzerView extends React.Component<
     },
     showMotionMode: {
       key: 'a',
-      description: 'Show Motion Mode',
+      description: 'Motion Mode',
       detail: 'Display and show the different motion modes for each block (SIMPLE, OBMC_WARPED, OBMC_CASUAL)',
+      updatesImages: false,
+      default: false,
+      value: undefined,
+    },
+    showWedgeMode: {
+      key: 'w',
+      description: 'Wedge Mode',
+      detail: 'Display and show the different wedge modes for each block',
+      updatesImages: false,
+      default: false,
+      value: undefined,
+    },
+    showCompoundTypes: {
+      key: 'c',
+      description: 'Compound Types',
+      detail:
+        'Display and show the different compound types for each block (COMPOUND_AVERAGE, COMPOUND_DIFFWTD, COMPOUND_WEDGE)',
       updatesImages: false,
       default: false,
       value: undefined,
@@ -729,8 +752,10 @@ export class AnalyzerView extends React.Component<
       showSkip: false,
       showCDEF: false,
       showMotionMode: false,
+      showWedgeMode: false,
       showMode: false,
       showUVMode: false,
+      showCompoundType: false,
       showSegment: false,
       showBits: false,
       showBitsScale: 'frame',
@@ -863,9 +888,11 @@ export class AnalyzerView extends React.Component<
     this.state.showBits && this.drawBits(frame, ctx, src, dst);
     this.state.showCDEF && this.drawCDEF(frame, ctx, src, dst);
     this.state.showMotionMode && this.drawMotionMode(frame, ctx, src, dst);
+    this.state.showWedgeMode && this.drawWedgeMode(frame, ctx, src, dst);
     this.state.showTransformType && this.drawTransformType(frame, ctx, src, dst);
     this.state.showMotionVectors && this.drawMotionVectors(frame, ctx, src, dst);
     this.state.showReferenceFrames && this.drawReferenceFrames(frame, ctx, src, dst);
+    this.state.showCompoundTypes && this.drawCompoundTypes(frame, ctx, src, dst);
     ctx.globalAlpha = 1;
     this.state.showSuperBlockGrid && this.drawGrid(frame, VisitMode.SuperBlock, '#87CEEB', ctx, src, dst, 2);
     this.state.showTransformGrid && this.drawGrid(frame, VisitMode.TransformBlock, 'yellow', ctx, src, dst);
@@ -1698,7 +1725,14 @@ export class AnalyzerView extends React.Component<
                 ref={(self: any) => (this.displayCanvas = self)}
                 width="256"
                 height="256"
-                style={{ position: 'absolute', left: 0, top: 0, zIndex: 0, imageRendering: 'pixelated' }}
+                style={{
+                  position: 'absolute',
+                  left: 0,
+                  top: 0,
+                  zIndex: 0,
+                  imageRendering: 'pixelated',
+                  backgroundColor: '#F5F5F5',
+                }}
               ></canvas>
               <canvas
                 ref={(self: any) => (this.overlayCanvas = self)}
@@ -1743,13 +1777,30 @@ export class AnalyzerView extends React.Component<
 
     this.fillBlock(frame, ctx, src, dst, (blockSize, c, r, sc, sr) => {
       const v = motionMode[r][c];
-      if (v in motionModeMapValue) {
+      if (v in motionModeMapValue && v < 3) {
         const value = motionModeMapValue[v];
         ctx.fillStyle = palette.motionMode[value];
         return true;
       } else {
         return false;
       }
+    });
+  }
+
+  drawCompoundTypes(frame: AnalyzerFrame, ctx: CanvasRenderingContext2D, src: Rectangle, dst: Rectangle) {
+    const compoundTypes = frame.json['compound_type'];
+    const compoundTypeMap = frame.json['compound_typeMap'];
+    const compountTypeMapValue = reverseMap(compoundTypeMap);
+    if (!compoundTypes) return;
+
+    this.fillBlock(frame, ctx, src, dst, (blockSize, c, r, sc, sr) => {
+      const v = compoundTypes[r][c];
+      if (v in compountTypeMapValue && v < 4) {
+        const value = compountTypeMapValue[v];
+        ctx.fillStyle = palette.compoundType[value];
+        return true;
+      }
+      return false;
     });
   }
 
@@ -1829,6 +1880,486 @@ export class AnalyzerView extends React.Component<
       VisitMode.SuperBlock,
     );
   }
+
+  drawWedgeMode(frame: AnalyzerFrame, ctx: CanvasRenderingContext2D, src: Rectangle, dst: Rectangle) {
+    const blockSizeMap = frame.json['blockSizeMap'];
+
+    const wedgeParamsLookup = frame.json['wedgeParamsLookup'];
+    const wedgeGrid = frame.json['wedge'];
+
+    const reverseBlockMap = reverseMap(blockSizeMap);
+
+    const blockTypeEnum = {
+      square: 0,
+      horizontalRect: 1,
+      verticalRect: 2,
+    };
+
+    const getBlockType = (block) => {
+      const blockName = reverseBlockMap[block];
+      const blockDim = blockName.split('_')[1].split('X').map(Number);
+      if (blockDim[0] == blockDim[1]) {
+        return blockTypeEnum.square;
+      } else if (blockDim[0] > blockDim[1]) {
+        return blockTypeEnum.horizontalRect; // Horizontal Rectangle
+      } else {
+        return blockTypeEnum.verticalRect; // Vertical Rectangle
+      }
+    };
+
+    const drawShape = (bounds: Rectangle, start: [number, number], points: [number, number][]) => {
+      ctx.moveTo(bounds.x + start[0] * bounds.w, bounds.y + start[1] * bounds.h);
+      points.forEach((pt) => {
+        ctx.lineTo(bounds.x + pt[0] * bounds.w, bounds.y + pt[1] * bounds.h);
+      });
+    };
+
+    this.drawBlock(frame, ctx, src, dst, (blockSize, c, r, sc, sr, bounds) => {
+      ctx.save();
+      const wedge = wedgeGrid[r][c];
+      const wedgeParams = wedgeParamsLookup[blockSize];
+      if (wedge[0] != -1 && wedgeParams['wedge_types'] > 0) {
+        ctx.fillStyle = wedge[1] === 0 ? palette.wedgeType.NO_SIGN : palette.wedgeType.SIGN;
+        ctx.beginPath();
+        const wedgeInfo = wedgeParams['codebook'][wedge[0]];
+        const xOffset = wedgeInfo['x_offset'];
+        const yOffset = wedgeInfo['y_offset'];
+        const wedgeDirection = wedgeInfo['wedgeDirectionType'];
+        const blockType = getBlockType(blockSize);
+
+        if (wedgeDirection == 0) {
+          ctx.fillRect(bounds.x, bounds.y + (bounds.h * yOffset) / 8, bounds.w, bounds.h * (1 - yOffset / 8));
+        } else if (wedgeDirection == 1) {
+          ctx.fillRect(bounds.x + (bounds.w * xOffset) / 8, bounds.y, bounds.w * (1 - xOffset / 8), bounds.h);
+        } else if (wedgeDirection == 2) {
+          if (blockType == blockTypeEnum.square) {
+            if (yOffset == 2) {
+              drawShape(
+                bounds,
+                [0, 0.5],
+                [
+                  [1, 0],
+                  [0, 0],
+                  [0, 0.4],
+                ],
+              );
+            } else if (yOffset == 4) {
+              drawShape(
+                bounds,
+                [0, 0.8],
+                [
+                  [1, 0.25],
+                  [1, 0],
+                  [0, 0],
+                  [0, 0.8],
+                ],
+              );
+            } else if (yOffset == 6) {
+              drawShape(
+                bounds,
+                [0, 1],
+                [
+                  [1, 0.5],
+                  [1, 0],
+                  [0, 0],
+                  [0, 1],
+                ],
+              );
+            } else if (blockType == blockTypeEnum.horizontalRect) {
+              if (yOffset == 2) {
+                drawShape(
+                  bounds,
+                  [0, 0.5],
+                  [
+                    [0.6, 0],
+                    [0, 0],
+                    [0, 0.5],
+                  ],
+                );
+              } else if (yOffset == 4) {
+                drawShape(
+                  bounds,
+                  [0, 1],
+                  [
+                    [1, 0],
+                    [0, 0],
+                    [0, 1],
+                  ],
+                );
+              } else if (yOffset == 6) {
+                drawShape(
+                  bounds,
+                  [0.4, 1],
+                  [
+                    [1, 0.4],
+                    [1, 0],
+                    [0, 0],
+                    [0, 1],
+                    [0.4, 1],
+                  ],
+                );
+              }
+            } else {
+              if (yOffset == 2) {
+                drawShape(
+                  bounds,
+                  [0, 0.3],
+                  [
+                    [1, 0.2],
+                    [1, 0],
+                    [0, 0],
+                    [0, 0.3],
+                  ],
+                );
+              } else if (yOffset == 4) {
+                drawShape(
+                  bounds,
+                  [0, 0.5],
+                  [
+                    [1, 0.4],
+                    [1, 0],
+                    [0, 0],
+                    [0, 0.3],
+                  ],
+                );
+              } else if (yOffset == 6) {
+                drawShape(
+                  bounds,
+                  [0, 0.7],
+                  [
+                    [1, 0.6],
+                    [1, 0],
+                    [0, 0],
+                    [0, 0.7],
+                  ],
+                );
+              }
+            }
+            ctx.fill();
+          }
+        } else if (wedgeDirection == 3) {
+          if (blockType == blockTypeEnum.square) {
+            if (xOffset == 4) {
+              drawShape(
+                bounds,
+                [0.25, 1],
+                [
+                  [0.6, 0],
+                  [0, 0],
+                  [0, 1],
+                  [0.25, 1],
+                ],
+              );
+            } else if (xOffset == 2) {
+              drawShape(
+                bounds,
+                [0, 1],
+                [
+                  [0.4, 0],
+                  [0, 0],
+                  [0, 1],
+                ],
+              );
+            } else if (xOffset == 6) {
+              drawShape(
+                bounds,
+                [0.5, 1],
+                [
+                  [1, 0],
+                  [0, 0],
+                  [0, 1],
+                  [0.5, 1],
+                ],
+              );
+            }
+          } else if (blockType == blockTypeEnum.horizontalRect) {
+            if (xOffset == 2) {
+              drawShape(
+                bounds,
+                [0.2, 1],
+                [
+                  [0.35, 0],
+                  [0, 0],
+                  [0, 1],
+                  [0.2, 1],
+                ],
+              );
+            } else if (xOffset == 4) {
+              drawShape(
+                bounds,
+                [0.4, 1],
+                [
+                  [0.55, 0],
+                  [0, 0],
+                  [0, 1],
+                  [0.4, 1],
+                ],
+              );
+            } else if (xOffset == 6) {
+              drawShape(
+                bounds,
+                [0.7, 1],
+                [
+                  [0.85, 0],
+                  [0, 0],
+                  [0, 1],
+                  [0.7, 1],
+                ],
+              );
+            }
+          } else {
+            if (xOffset == 2) {
+              drawShape(
+                bounds,
+                [0, 0.5],
+                [
+                  [0.4, 0],
+                  [0, 0],
+                  [0, 0.5],
+                ],
+              );
+            } else if (xOffset == 4) {
+              drawShape(
+                bounds,
+                [0, 1],
+                [
+                  [1, 0],
+                  [0, 0],
+                  [0, 1],
+                ],
+              );
+            } else if (xOffset == 6) {
+              drawShape(
+                bounds,
+                [0.3, 1],
+                [
+                  [1, 0.3],
+                  [1, 0],
+                  [0, 0],
+                  [0, 1],
+                  [0.3, 1],
+                ],
+              );
+            }
+          }
+          ctx.fill();
+        } else if (wedgeDirection == 4) {
+          if (blockType == blockTypeEnum.square) {
+            if (xOffset == 2) {
+              drawShape(
+                bounds,
+                [0.4, 1],
+                [
+                  [0, 0],
+                  [0, 1],
+                  [0.4, 1],
+                ],
+              );
+            } else if (xOffset == 4) {
+              drawShape(
+                bounds,
+                [0.6, 1],
+                [
+                  [0.25, 0],
+                  [0, 0],
+                  [0, 1],
+                  [0.6, 1],
+                ],
+              );
+            } else if (xOffset == 6) {
+              drawShape(
+                bounds,
+                [1, 1],
+                [
+                  [0.5, 0],
+                  [0, 0],
+                  [0, 1],
+                  [1, 1],
+                ],
+              );
+            }
+          } else if (blockType == blockTypeEnum.horizontalRect) {
+            if (xOffset == 2) {
+              drawShape(
+                bounds,
+                [0.4, 1],
+                [
+                  [0.25, 0],
+                  [0, 0],
+                  [0, 1],
+                  [0.4, 1],
+                ],
+              );
+            } else if (xOffset == 4) {
+              drawShape(
+                bounds,
+                [0.6, 1],
+                [
+                  [0.45, 0],
+                  [0, 0],
+                  [0, 1],
+                  [0.6, 1],
+                ],
+              );
+            } else if (xOffset == 6) {
+              drawShape(
+                bounds,
+                [0.8, 1],
+                [
+                  [0.65, 0],
+                  [0, 0],
+                  [0, 1],
+                  [0.8, 1],
+                ],
+              );
+            }
+          } else {
+            if (xOffset == 2) {
+              drawShape(
+                bounds,
+                [0.5, 1],
+                [
+                  [0, 0.4],
+                  [0, 1],
+                  [0.5, 1],
+                ],
+              );
+            } else if (xOffset == 4) {
+              drawShape(
+                bounds,
+                [1, 1],
+                [
+                  [0, 0],
+                  [0, 1],
+                  [1, 1],
+                ],
+              );
+            } else if (xOffset == 6) {
+              drawShape(
+                bounds,
+                [1, 0.5],
+                [
+                  [0.6, 0],
+                  [0, 0],
+                  [0, 1],
+                  [1, 1],
+                  [1, 0.5],
+                ],
+              );
+            }
+          }
+          ctx.fill();
+        } else if (wedgeDirection == 5) {
+          if (blockType == blockTypeEnum.square) {
+            if (yOffset == 2) {
+              drawShape(
+                bounds,
+                [0, 0],
+                [
+                  [1, 0.5],
+                  [1, 0],
+                  [0, 0],
+                ],
+              );
+            } else if (yOffset == 4) {
+              drawShape(
+                bounds,
+                [0, 0.25],
+                [
+                  [1, 0.8],
+                  [1, 0],
+                  [0, 0],
+                  [0, 0.25],
+                ],
+              );
+            } else if (yOffset == 6) {
+              drawShape(
+                bounds,
+                [0, 0.5],
+                [
+                  [1, 1],
+                  [1, 0],
+                  [0, 0],
+                  [0, 0.5],
+                ],
+              );
+            }
+          } else if (blockType == blockTypeEnum.horizontalRect) {
+            if (yOffset == 2) {
+              drawShape(
+                bounds,
+                [0.4, 0],
+                [
+                  [1, 0.6],
+                  [1, 1],
+                  [0.4, 0],
+                ],
+              );
+            } else if (yOffset == 4) {
+              drawShape(
+                bounds,
+                [0, 0],
+                [
+                  [1, 1],
+                  [1, 0],
+                  [0, 0],
+                ],
+              );
+            } else if (yOffset == 6) {
+              drawShape(
+                bounds,
+                [0, 0.3],
+                [
+                  [0.7, 1],
+                  [1, 1],
+                  [1, 0],
+                  [0, 0],
+                  [0, 0.3],
+                ],
+              );
+            }
+          } else {
+            if (yOffset == 2) {
+              drawShape(
+                bounds,
+                [0, 0.2],
+                [
+                  [1, 0.4],
+                  [1, 0],
+                  [0, 0],
+                  [0, 0.2],
+                ],
+              );
+            } else if (yOffset == 4) {
+              drawShape(
+                bounds,
+                [0, 0.4],
+                [
+                  [1, 0.6],
+                  [1, 0],
+                  [0, 0],
+                  [0, 0.4],
+                ],
+              );
+            } else if (yOffset == 6) {
+              drawShape(
+                bounds,
+                [0, 0.7],
+                [
+                  [1, 0.9],
+                  [1, 0],
+                  [0, 0],
+                  [0, 0.7],
+                ],
+              );
+            }
+          }
+          ctx.fill();
+        }
+      }
+    });
+  }
+
   drawReferenceFrames(frame: AnalyzerFrame, ctx: CanvasRenderingContext2D, src: Rectangle, dst: Rectangle) {
     const referenceGrid = frame.json['referenceFrame'];
     const referenceMapByValue = reverseMap(frame.json['referenceFrameMap']);

@@ -432,6 +432,8 @@ function readFrameFromJson(json): AnalyzerFrame {
   uncompress(json['delta_q']);
   uncompress(json['seg_id']);
   uncompress(json['motion_mode']);
+  uncompress(json['compound_type']);
+  uncompress(json['wedge']);
 
   const frame = new AnalyzerFrame();
   frame.json = json;
@@ -1018,6 +1020,16 @@ export const palette = {
     SIMPLE_TRANSLATION: '#00d041',
     OBMC_CAUSAL: '#6f7dcb',
     WARPED_CAUSAL: '#b459c0',
+  },
+  compoundType: {
+    COMPOUND_AVERAGE: '#468400',
+    COMPOUND_DISTWTD: '#0164d9',
+    COMPOUND_DIFFWTD: '#fdb78c',
+    COMPOUND_WEDGE: '#c9004c',
+  },
+  wedgeType: {
+    SIGN: '#a4558f',
+    NO_SIGN: '#9c9c4d',
   },
   predictionMode: {
     DC_PRED: '#6c0039',
