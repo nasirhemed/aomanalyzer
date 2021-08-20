@@ -631,6 +631,10 @@ export class FilmInfoComponent extends React.Component<
     const filmGrainParams = this.props.filmGrainParams;
     const tableData = [
       {
+        name: 'Update Parameters',
+        value: filmGrainParams.update_parameters,
+      },
+      {
         name: 'AR Coeff Lag',
         value: filmGrainParams.ar_coeff_lag,
       },

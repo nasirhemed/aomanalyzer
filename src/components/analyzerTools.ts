@@ -304,6 +304,7 @@ export class Histogram {
 }
 
 export interface FilmGrainParams {
+  update_parameters: number;
   scaling_lut_y: number[];
   scaling_lut_cr: number[];
   scaling_lut_cb: number[];
